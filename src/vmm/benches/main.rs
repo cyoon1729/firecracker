@@ -76,6 +76,7 @@ fn create_microvm_state(is_diff: bool) -> MicrovmState {
         snapshot_path: snapshot_file.as_path().to_path_buf(),
         mem_file_path: memory_file.as_path().to_path_buf(),
         version: None,
+        nvmeof_args: None,
     };
 
     {

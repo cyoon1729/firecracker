@@ -1114,6 +1114,42 @@ definitions:
         description:
           The microVM version for which we want to create the snapshot.
           It is optional and it defaults to the current version.
+      nvmeofArgs:
+        $ref: "#/definitions/NvmeofArgs"
+        description:
+          Optional NVMe-oF export configuration for snapshot backing block storage.
+
+  NvmeofArgs:
+    type: object
+    required:
+      - device_path
+      - nvmeof_ip
+      - nvmeof_port
+      - port_id
+      - nsid
+      - nqn
+    properties:
+      device_path:
+        type: string
+        description: Local host block device path to export.
+      nvmeof_ip:
+        type: string
+        description: IPv4 address to bind the NVMe-oF target.
+      nvmeof_port:
+        type: integer
+        format: int32
+        description: NVMe-oF transport port value provided by API callers.
+      port_id:
+        type: integer
+        format: int32
+        description: NVMe-oF TCP service port (`addr_trsvcid`).
+      nsid:
+        type: integer
+        format: int32
+        description: NVMe namespace identifier.
+      nqn:
+        type: string
+        description: NVMe subsystem NQN.
 
   SnapshotLoadParams:
     type: object

@@ -36,6 +36,24 @@ pub enum MemBackendType {
     Uffd,
 }
 
+/// Stores NVMe-oF export configuration used during snapshot creation.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct NvmeofArgs {
+    /// Local host block device path to export.
+    pub device_path: String,
+    /// IPv4 address to bind the NVMe-oF target.
+    pub nvmeof_ip: String,
+    /// NVMe-oF transport port value provided by API callers.
+    pub nvmeof_port: u16,
+    /// NVMe-oF TCP service port (`addr_trsvcid`).
+    pub port_id: u16,
+    /// NVMe namespace identifier.
+    pub nsid: u32,
+    /// NVMe subsystem NQN.
+    pub nqn: String,
+}
+
 /// Stores the configuration that will be used for creating a snapshot.
 #[derive(Debug, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -51,6 +69,10 @@ pub struct CreateSnapshotParams {
     /// Optional field for the microVM version. The default
     /// value is the current version.
     pub version: Option<String>,
+    /// Optional NVMe-oF export configuration.
+    /// When set, snapshot-create exports the provided backing block device via NVMe-oF.
+    #[serde(rename = "nvmeofArgs", skip_serializing_if = "Option::is_none")]
+    pub nvmeof_args: Option<NvmeofArgs>,
 }
 
 /// Stores the configuration that will be used for loading a snapshot.

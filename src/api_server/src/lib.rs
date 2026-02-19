@@ -401,6 +401,7 @@ mod tests {
                 snapshot_path: PathBuf::new(),
                 mem_file_path: PathBuf::new(),
                 version: None,
+                nvmeof_args: None,
             })),
             start_time_us,
         );
@@ -415,6 +416,7 @@ mod tests {
                 snapshot_path: PathBuf::new(),
                 mem_file_path: PathBuf::new(),
                 version: None,
+                nvmeof_args: None,
             })),
             start_time_us,
         );

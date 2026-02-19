@@ -113,7 +113,7 @@ fn parse_put_snapshot_load(body: &Body) -> Result<ParsedRequest, Error> {
 mod tests {
     use super::*;
     use crate::parsed_request::tests::{depr_action_from_req, vmm_action_from_request};
-    use vmm::vmm_config::snapshot::{MemBackendConfig, MemBackendType};
+    use vmm::vmm_config::snapshot::{MemBackendConfig, MemBackendType, NvmeofArgs};
 
     #[test]
     fn test_parse_put_snapshot() {
@@ -132,6 +132,7 @@ mod tests {
             snapshot_path: PathBuf::from("foo"),
             mem_file_path: PathBuf::from("bar"),
             version: Some(String::from("0.23.0")),
+            nvmeof_args: None,
         };
 
         match vmm_action_from_request(
@@ -151,6 +152,42 @@ mod tests {
             snapshot_path: PathBuf::from("foo"),
             mem_file_path: PathBuf::from("bar"),
             version: None,
+            nvmeof_args: None,
+        };
+
+        match vmm_action_from_request(
+            parse_put_snapshot(&Body::new(body), Some(&"create")).unwrap(),
+        ) {
+            VmmAction::CreateSnapshot(cfg) => assert_eq!(cfg, expected_cfg),
+            _ => panic!("Test failed."),
+        }
+
+        body = r#"{
+                "snapshot_path": "foo",
+                "mem_file_path": "bar",
+                "nvmeofArgs": {
+                    "device_path": "/dev/vdb",
+                    "nvmeof_ip": "192.168.0.10",
+                    "nvmeof_port": 4420,
+                    "port_id": 1,
+                    "nsid": 10,
+                    "nqn": "nqn.2014-08.org.nvmexpress:uuid:1234"
+                }
+              }"#;
+
+        expected_cfg = CreateSnapshotParams {
+            snapshot_type: SnapshotType::Full,
+            snapshot_path: PathBuf::from("foo"),
+            mem_file_path: PathBuf::from("bar"),
+            version: None,
+            nvmeof_args: Some(NvmeofArgs {
+                device_path: "/dev/vdb".to_string(),
+                nvmeof_ip: "192.168.0.10".to_string(),
+                nvmeof_port: 4420,
+                port_id: 1,
+                nsid: 10,
+                nqn: "nqn.2014-08.org.nvmexpress:uuid:1234".to_string(),
+            }),
         };
 
         match vmm_action_from_request(

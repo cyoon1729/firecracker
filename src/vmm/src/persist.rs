@@ -4,8 +4,9 @@
 //! Defines state structures for saving/restoring a Firecracker microVM.
 
 use std::fmt::{Display, Formatter};
-use std::fs::{File, OpenOptions};
+use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write};
+use std::os::unix::fs::symlink;
 use std::os::unix::{io::AsRawFd, net::UnixStream};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -15,7 +16,7 @@ use crate::device_manager::persist::Error as DevicePersistError;
 use crate::mem_size_mib;
 use crate::vmm_config::machine_config::MAX_SUPPORTED_VCPUS;
 use crate::vmm_config::snapshot::{
-    CreateSnapshotParams, LoadSnapshotParams, MemBackendType, SnapshotType,
+    CreateSnapshotParams, LoadSnapshotParams, MemBackendType, NvmeofArgs, SnapshotType,
 };
 use crate::vstate::{self, vcpu::VcpuState, vm::VmState};
 
@@ -152,6 +153,8 @@ pub enum CreateSnapshotError {
     SerializeMicrovmState(snapshot::Error),
     /// Failed to open the snapshot backing file.
     SnapshotBackingFile(&'static str, io::Error),
+    /// Failed to export the snapshot backing block device over NVMe-oF.
+    NvmeofExport(io::Error),
     #[cfg(target_arch = "x86_64")]
     /// Number of devices exceeds the maximum supported devices for the snapshot data version.
     TooManyDevices(usize),
@@ -188,6 +191,7 @@ impl Display for CreateSnapshotError {
                 "Cannot perform {} on the snapshot backing file: {}",
                 action, err
             ),
+            NvmeofExport(err) => write!(f, "Cannot export block device over NVMe-oF: {}", err),
             #[cfg(target_arch = "x86_64")]
             TooManyDevices(val) => write!(
                 f,
@@ -289,6 +293,61 @@ pub fn create_snapshot(
     )?;
 
     snapshot_memory_to_file(vmm, &params.mem_file_path, &params.snapshot_type)?;
+
+    if let Some(nvmeof_args) = &params.nvmeof_args {
+        expose_disk_over_nvmeof_tcp(nvmeof_args).map_err(CreateSnapshotError::NvmeofExport)?;
+    }
+
+    Ok(())
+}
+
+fn write_configfs_value(path: &Path, value: &str) -> io::Result<()> {
+    fs::write(path, value.as_bytes())
+}
+
+fn expose_disk_over_nvmeof_tcp(nvmeof_args: &NvmeofArgs) -> io::Result<()> {
+    let subsystem_path = Path::new("/sys/kernel/config/nvmet/subsystems").join(&nvmeof_args.nqn);
+    fs::create_dir_all(&subsystem_path)?;
+    write_configfs_value(&subsystem_path.join("attr_allow_any_host"), "1")?;
+
+    let namespace_path = subsystem_path
+        .join("namespaces")
+        .join(nvmeof_args.nsid.to_string());
+    fs::create_dir_all(&namespace_path)?;
+
+    write_configfs_value(&namespace_path.join("device_path"), &nvmeof_args.device_path)?;
+    write_configfs_value(&namespace_path.join("enable"), "1")?;
+
+    let port_path =
+        Path::new("/sys/kernel/config/nvmet/ports").join(nvmeof_args.port_id.to_string());
+    fs::create_dir_all(&port_path)?;
+
+    write_configfs_value(&port_path.join("addr_trtype"), "tcp")?;
+    write_configfs_value(&port_path.join("addr_adrfam"), "ipv4")?;
+    write_configfs_value(&port_path.join("addr_traddr"), &nvmeof_args.nvmeof_ip)?;
+    write_configfs_value(
+        &port_path.join("addr_trsvcid"),
+        &nvmeof_args.nvmeof_port.to_string(),
+    )?;
+
+    let subsystems_dir = port_path.join("subsystems");
+    fs::create_dir_all(&subsystems_dir)?;
+    let link_path = subsystems_dir.join(&nvmeof_args.nqn);
+    match symlink(&subsystem_path, &link_path) {
+        Ok(()) => {}
+        Err(err) if err.kind() == io::ErrorKind::AlreadyExists => {}
+        Err(err) => return Err(err),
+    }
+
+    info!(
+        "[expose_disk_over_nvmeof_tcp] Exposed nqn={} nsid={} dev={} on {}:{} (port_id={})",
+        nvmeof_args.nqn,
+        nvmeof_args.nsid,
+        nvmeof_args.device_path,
+        nvmeof_args.nvmeof_ip,
+        nvmeof_args.nvmeof_port,
+        nvmeof_args.port_id,
+    );
 
     Ok(())
 }
@@ -849,6 +908,9 @@ mod tests {
         let _ = format!("{}{:?}", err, err);
 
         let err = SnapshotBackingFile("open", io::Error::from_raw_os_error(0));
+        let _ = format!("{}{:?}", err, err);
+
+        let err = NvmeofExport(io::Error::from_raw_os_error(0));
         let _ = format!("{}{:?}", err, err);
 
         #[cfg(target_arch = "x86_64")]

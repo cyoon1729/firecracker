@@ -163,6 +163,7 @@ fn verify_create_snapshot(is_diff: bool) -> (TempFile, TempFile) {
         snapshot_path: snapshot_file.as_path().to_path_buf(),
         mem_file_path: memory_file.as_path().to_path_buf(),
         version: Some(String::from("0.24.0")),
+        nvmeof_args: None,
     };
 
     {
