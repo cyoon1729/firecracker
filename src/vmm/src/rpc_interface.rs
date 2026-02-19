@@ -57,7 +57,7 @@ pub enum VmmAction {
     /// before the microVM has booted.
     ConfigureMetrics(MetricsConfig),
     /// Create a snapshot using as input the `CreateSnapshotParams`. This action can only be called
-    /// after the microVM has booted and only when the microVM is in `Paused` state.
+    /// after the microVM has booted. The microVM will be paused as part of this action.
     CreateSnapshot(CreateSnapshotParams),
     /// Get the balloon device configuration.
     GetBalloonConfig,
@@ -732,6 +732,10 @@ impl RuntimeApiController {
 
         let mut locked_vmm = self.vmm.lock().unwrap();
         let create_start_us = utils::time::get_time_us(utils::time::ClockType::Monotonic);
+
+        locked_vmm
+            .pause_vm()
+            .map_err(VmmActionError::InternalVmm)?;
 
         create_snapshot(&mut locked_vmm, create_params, VERSION_MAP.clone())
             .map_err(VmmActionError::CreateSnapshot)?;
@@ -1832,6 +1836,33 @@ mod tests {
 
         let req = VmmAction::Resume;
         check_runtime_request_err(req, VmmActionError::InternalVmm(VmmError::VcpuResume));
+    }
+
+    #[test]
+    fn test_runtime_create_snapshot_pauses_vm() {
+        let req = VmmAction::CreateSnapshot(CreateSnapshotParams {
+            snapshot_type: SnapshotType::Full,
+            snapshot_path: PathBuf::new(),
+            mem_file_path: PathBuf::new(),
+            version: None,
+            nvmeof_args: None,
+        });
+        check_runtime_request(req, |result, vmm| {
+            assert_eq!(result, Ok(VmmData::Empty));
+            assert!(vmm.pause_called);
+        });
+    }
+
+    #[test]
+    fn test_runtime_create_snapshot_pause_fails() {
+        let req = VmmAction::CreateSnapshot(CreateSnapshotParams {
+            snapshot_type: SnapshotType::Full,
+            snapshot_path: PathBuf::new(),
+            mem_file_path: PathBuf::new(),
+            version: None,
+            nvmeof_args: None,
+        });
+        check_runtime_request_err(req, VmmActionError::InternalVmm(VmmError::VcpuPause));
     }
 
     #[cfg(target_arch = "x86_64")]
