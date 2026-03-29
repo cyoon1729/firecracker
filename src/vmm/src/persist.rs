@@ -4,14 +4,8 @@
 //! Defines state structures for saving/restoring a Firecracker microVM.
 
 use std::fmt::{Display, Formatter};
-<<<<<<< Updated upstream
 use std::fs::{File, OpenOptions};
-use std::io::{self, Write};
-=======
-use std::fs::{self, File, OpenOptions};
 use std::io::{self, Seek, SeekFrom, Write};
-use std::os::unix::fs::symlink;
->>>>>>> Stashed changes
 use std::os::unix::{io::AsRawFd, net::UnixStream};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
