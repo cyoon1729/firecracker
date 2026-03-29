@@ -29,6 +29,30 @@ pub fn update_structured_extended_entry(
     if entry.index == 0 {
         // KVM sets this bit no matter what but this feature is not supported by hardware
         entry.edx.write_bit(edx::ARCH_CAPABILITIES_BITINDEX, false);
+
+        // Mask AVX-512 features so AMD hosts with different AVX-512 support
+        // expose a consistent guest CPUID and XSAVE layout.
+        entry
+            .ebx
+            .write_bit(ebx::AVX512F_BITINDEX, false)
+            .write_bit(ebx::AVX512DQ_BITINDEX, false)
+            .write_bit(ebx::AVX512IFMA_BITINDEX, false)
+            .write_bit(ebx::AVX512PF_BITINDEX, false)
+            .write_bit(ebx::AVX512ER_BITINDEX, false)
+            .write_bit(ebx::AVX512CD_BITINDEX, false)
+            .write_bit(ebx::AVX512BW_BITINDEX, false)
+            .write_bit(ebx::AVX512VL_BITINDEX, false);
+
+        entry
+            .ecx
+            .write_bit(ecx::AVX512_VBMI_BITINDEX, false)
+            .write_bit(ecx::AVX512_VNNI_BITINDEX, false)
+            .write_bit(ecx::AVX512_VPOPCNTDQ_BITINDEX, false);
+
+        entry
+            .edx
+            .write_bit(edx::AVX512_4VNNIW_BITINDEX, false)
+            .write_bit(edx::AVX512_4FMAPS_BITINDEX, false);
     }
 
     Ok(())
@@ -190,19 +214,42 @@ mod tests {
             index: 0,
             flags: 0,
             eax: 0,
-            ebx: 0,
-            ecx: 0,
-            edx: *(0_u32).write_bit(edx::ARCH_CAPABILITIES_BITINDEX, true),
+            ebx: *(0_u32)
+                .write_bit(ebx::AVX512F_BITINDEX, true)
+                .write_bit(ebx::AVX512VL_BITINDEX, true),
+            ecx: *(0_u32)
+                .write_bit(ecx::AVX512_VBMI_BITINDEX, true)
+                .write_bit(ecx::AVX512_VNNI_BITINDEX, true),
+            edx: *(0_u32)
+                .write_bit(edx::ARCH_CAPABILITIES_BITINDEX, true)
+                .write_bit(edx::AVX512_4VNNIW_BITINDEX, true),
             padding: [0, 0, 0],
         };
         assert!(update_structured_extended_entry(entry, &vm_spec).is_ok());
         assert!(!entry.edx.read_bit(edx::ARCH_CAPABILITIES_BITINDEX));
+        assert!(!entry.ebx.read_bit(ebx::AVX512F_BITINDEX));
+        assert!(!entry.ebx.read_bit(ebx::AVX512VL_BITINDEX));
+        assert!(!entry.ecx.read_bit(ecx::AVX512_VBMI_BITINDEX));
+        assert!(!entry.ecx.read_bit(ecx::AVX512_VNNI_BITINDEX));
+        assert!(!entry.edx.read_bit(edx::AVX512_4VNNIW_BITINDEX));
 
         // Check that if index != 0 the entry is not processed
         entry.index = 1;
+        entry.ebx
+            .write_bit(ebx::AVX512F_BITINDEX, true)
+            .write_bit(ebx::AVX512VL_BITINDEX, true);
+        entry.ecx
+            .write_bit(ecx::AVX512_VBMI_BITINDEX, true)
+            .write_bit(ecx::AVX512_VNNI_BITINDEX, true);
         entry.edx.write_bit(edx::ARCH_CAPABILITIES_BITINDEX, true);
+        entry.edx.write_bit(edx::AVX512_4VNNIW_BITINDEX, true);
         assert!(update_structured_extended_entry(entry, &vm_spec).is_ok());
         assert!(entry.edx.read_bit(edx::ARCH_CAPABILITIES_BITINDEX));
+        assert!(entry.ebx.read_bit(ebx::AVX512F_BITINDEX));
+        assert!(entry.ebx.read_bit(ebx::AVX512VL_BITINDEX));
+        assert!(entry.ecx.read_bit(ecx::AVX512_VBMI_BITINDEX));
+        assert!(entry.ecx.read_bit(ecx::AVX512_VNNI_BITINDEX));
+        assert!(entry.edx.read_bit(edx::AVX512_4VNNIW_BITINDEX));
     }
 
     #[test]

@@ -132,6 +132,26 @@ mod tests {
                 VmmAction::UpdateVmConfiguration(config) => assert_eq!(config, expected_config),
                 _ => panic!("Test failed."),
             }
+
+            let body = r#"{
+                "vcpu_count": 8,
+                "mem_size_mib": 1024,
+                "smt": false,
+                "cpu_template": "NoAVX512",
+                "track_dirty_pages": true
+              }"#;
+            let expected_config = VmUpdateConfig {
+                vcpu_count: Some(8),
+                mem_size_mib: Some(1024),
+                smt: Some(false),
+                cpu_template: Some(CpuFeaturesTemplate::NoAVX512),
+                track_dirty_pages: Some(true),
+            };
+
+            match vmm_action_from_request(parse_put_machine_config(&Body::new(body)).unwrap()) {
+                VmmAction::UpdateVmConfiguration(config) => assert_eq!(config, expected_config),
+                _ => panic!("Test failed."),
+            }
         }
 
         #[cfg(target_arch = "aarch64")]

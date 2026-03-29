@@ -777,12 +777,13 @@ definitions:
     type: string
     description:
       The CPU Template defines a set of flags to be disabled from the microvm so that
-      the features exposed to the guest are the same as in the selected instance type.
-      Works only on Intel.
+      the features exposed to the guest match the selected template.
+      `C3`, `T2`, and `T2S` are Intel-specific; `NoAVX512` only masks AVX-512.
     enum:
       - C3
       - T2
       - T2S
+      - NoAVX512
       - None
     default: "None"
 

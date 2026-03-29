@@ -1064,6 +1064,22 @@ pub(crate) mod tests {
         assert!(ParsedRequest::try_from_request(&req).is_ok());
         #[cfg(target_arch = "aarch64")]
         assert!(ParsedRequest::try_from_request(&req).is_err());
+
+        let body = "{ \
+            \"vcpu_count\": 1, \
+            \"mem_size_mib\": 1, \
+            \"smt\": false, \
+            \"cpu_template\": \"NoAVX512\" \
+        }";
+        sender
+            .write_all(http_request("PATCH", "/machine-config", Some(body)).as_bytes())
+            .unwrap();
+        assert!(connection.try_read().is_ok());
+        let req = connection.pop_parsed_request().unwrap();
+        #[cfg(target_arch = "x86_64")]
+        assert!(ParsedRequest::try_from_request(&req).is_ok());
+        #[cfg(target_arch = "aarch64")]
+        assert!(ParsedRequest::try_from_request(&req).is_err());
     }
 
     #[test]

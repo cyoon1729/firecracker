@@ -233,8 +233,7 @@ where
     T::deserialize(_d)
 }
 
-/// Template types available for configuring the CPU features that map
-/// to EC2 instances.
+/// Template types available for configuring the CPU features exposed to the guest.
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
 pub enum CpuFeaturesTemplate {
     /// C3 Template.
@@ -243,6 +242,8 @@ pub enum CpuFeaturesTemplate {
     T2,
     /// T2S Template.
     T2S,
+    /// Masks AVX-512 CPUID and XSAVE state bits.
+    NoAVX512,
     /// No CPU template is used.
     None,
 }
@@ -260,6 +261,7 @@ impl fmt::Display for CpuFeaturesTemplate {
             CpuFeaturesTemplate::C3 => write!(f, "C3"),
             CpuFeaturesTemplate::T2 => write!(f, "T2"),
             CpuFeaturesTemplate::T2S => write!(f, "T2S"),
+            CpuFeaturesTemplate::NoAVX512 => write!(f, "NoAVX512"),
             CpuFeaturesTemplate::None => write!(f, "None"),
         }
     }
@@ -280,6 +282,10 @@ mod tests {
         assert_eq!(CpuFeaturesTemplate::C3.to_string(), "C3".to_string());
         assert_eq!(CpuFeaturesTemplate::T2.to_string(), "T2".to_string());
         assert_eq!(CpuFeaturesTemplate::T2S.to_string(), "T2S".to_string());
+        assert_eq!(
+            CpuFeaturesTemplate::NoAVX512.to_string(),
+            "NoAVX512".to_string()
+        );
     }
 
     #[test]

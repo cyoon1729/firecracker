@@ -15,7 +15,7 @@ use crate::vstate::{
     vcpu::{VcpuConfig, VcpuEmulation},
     vm::Vm,
 };
-use cpuid::{c3, filter_cpuid, t2, t2s, VmSpec};
+use cpuid::{c3, filter_cpuid, noavx512, t2, t2s, VmSpec};
 use kvm_bindings::{
     kvm_debugregs, kvm_lapic_state, kvm_mp_state, kvm_regs, kvm_sregs, kvm_vcpu_events, kvm_xcrs,
     kvm_xsave, CpuId, MsrList, Msrs,
@@ -222,6 +222,9 @@ impl KvmVcpu {
             }
             CpuFeaturesTemplate::C3 => {
                 c3::set_cpuid_entries(&mut cpuid, &cpuid_vm_spec).map_err(Error::CpuId)?
+            }
+            CpuFeaturesTemplate::NoAVX512 => {
+                noavx512::set_cpuid_entries(&mut cpuid, &cpuid_vm_spec).map_err(Error::CpuId)?
             }
             CpuFeaturesTemplate::None => {}
         }
@@ -560,16 +563,27 @@ mod tests {
             vm.supported_cpuid().clone(),
         );
 
+        // Test configure while using the NoAVX512 template.
+        vcpu_config.cpu_template = CpuFeaturesTemplate::NoAVX512;
+        let noavx512_res = vcpu.configure(
+            &vm_mem,
+            GuestAddress(0),
+            &vcpu_config,
+            vm.supported_cpuid().clone(),
+        );
+
         match &get_vendor_id_from_host().unwrap() {
             VENDOR_ID_INTEL => {
                 assert!(t2_res.is_ok());
                 assert!(c3_res.is_ok());
                 assert!(t2s_res.is_ok());
+                assert!(noavx512_res.is_ok());
             }
             _ => {
                 assert!(t2_res.is_err());
                 assert!(c3_res.is_err());
                 assert!(t2s_res.is_err());
+                assert!(noavx512_res.is_ok());
             }
         }
     }

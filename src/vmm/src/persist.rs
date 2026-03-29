@@ -4,8 +4,14 @@
 //! Defines state structures for saving/restoring a Firecracker microVM.
 
 use std::fmt::{Display, Formatter};
+<<<<<<< Updated upstream
 use std::fs::{File, OpenOptions};
 use std::io::{self, Write};
+=======
+use std::fs::{self, File, OpenOptions};
+use std::io::{self, Seek, SeekFrom, Write};
+use std::os::unix::fs::symlink;
+>>>>>>> Stashed changes
 use std::os::unix::{io::AsRawFd, net::UnixStream};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -33,7 +39,7 @@ use crate::resources::VmResources;
 use crate::vmm_config::instance_info::InstanceInfo;
 #[cfg(target_arch = "aarch64")]
 use arch::regs::{get_manufacturer_id_from_host, get_manufacturer_id_from_state};
-use logger::{error, info};
+use logger::{error, info, StoreMetric, METRICS};
 use seccompiler::BpfThreadMap;
 use serde::Serialize;
 use snapshot::Snapshot;
@@ -46,6 +52,51 @@ use vm_memory::{GuestMemory, GuestMemoryMmap};
 
 #[cfg(target_arch = "x86_64")]
 const FC_V0_23_MAX_DEVICES: u32 = 11;
+
+struct TimedWriter<T> {
+    inner: T,
+    io_time_us: u64,
+}
+
+impl<T> TimedWriter<T> {
+    fn new(inner: T) -> Self {
+        Self {
+            inner,
+            io_time_us: 0,
+        }
+    }
+
+    fn io_time_us(&self) -> u64 {
+        self.io_time_us
+    }
+
+    fn time_io<F, R>(&mut self, op: F) -> R
+    where
+        F: FnOnce(&mut T) -> R,
+    {
+        let start_us = utils::time::get_time_us(utils::time::ClockType::Monotonic);
+        let result = op(&mut self.inner);
+        self.io_time_us +=
+            utils::time::get_time_us(utils::time::ClockType::Monotonic) - start_us;
+        result
+    }
+}
+
+impl<T: Write> Write for TimedWriter<T> {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.time_io(|inner| inner.write(buf))
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.time_io(Write::flush)
+    }
+}
+
+impl<T: Seek> Seek for TimedWriter<T> {
+    fn seek(&mut self, pos: SeekFrom) -> io::Result<u64> {
+        self.time_io(|inner| inner.seek(pos))
+    }
+}
 
 /// Holds information related to the VM that is not part of VmState.
 #[derive(Debug, PartialEq, Eq, Versionize)]
@@ -307,9 +358,26 @@ fn snapshot_state_to_file(
         .map_err(|e| SnapshotBackingFile("open", e))?;
 
     let mut snapshot = Snapshot::new(version_map, snapshot_data_version);
-    snapshot
-        .save(&mut snapshot_file, microvm_state)
-        .map_err(SerializeMicrovmState)?;
+    let serialize_start_us = utils::time::get_time_us(utils::time::ClockType::Monotonic);
+    let io_time_us = {
+        let mut timed_writer = TimedWriter::new(&mut snapshot_file);
+        snapshot
+            .save(&mut timed_writer, microvm_state)
+            .map_err(SerializeMicrovmState)?;
+        timed_writer.io_time_us()
+    };
+    let elapsed_time_us =
+        (utils::time::get_time_us(utils::time::ClockType::Monotonic) - serialize_start_us)
+            .saturating_sub(io_time_us);
+    METRICS
+        .latencies_us
+        .vmm_snapshot_state_serialize
+        .store(elapsed_time_us as usize);
+    info!(
+        "'serialize microVM state to snapshot state file' took {} us (excluding {} us of write/flush IO).",
+        elapsed_time_us,
+        io_time_us
+    );
     snapshot_file
         .flush()
         .map_err(|e| SnapshotBackingFile("flush", e))?;
@@ -336,15 +404,35 @@ fn snapshot_memory_to_file(
     file.set_len(mem_size_mib * 1024 * 1024)
         .map_err(|err| MemoryBackingFile("set_length", err))?;
 
-    match snapshot_type {
-        SnapshotType::Diff => {
-            let dirty_bitmap = vmm.get_dirty_bitmap().map_err(DirtyBitmap)?;
-            vmm.guest_memory()
-                .dump_dirty(&mut file, &dirty_bitmap)
-                .map_err(Memory)
-        }
-        SnapshotType::Full => vmm.guest_memory().dump(&mut file).map_err(Memory),
-    }?;
+    let serialize_start_us = utils::time::get_time_us(utils::time::ClockType::Monotonic);
+    let io_time_us = {
+        let mut timed_writer = TimedWriter::new(&mut file);
+        match snapshot_type {
+            SnapshotType::Diff => {
+                let dirty_bitmap = vmm.get_dirty_bitmap().map_err(DirtyBitmap)?;
+                vmm.guest_memory()
+                    .dump_dirty(&mut timed_writer, &dirty_bitmap)
+                    .map_err(Memory)?
+            }
+            SnapshotType::Full => vmm.guest_memory().dump(&mut timed_writer).map_err(Memory)?,
+        };
+        timed_writer.io_time_us()
+    };
+    let elapsed_time_us =
+        (utils::time::get_time_us(utils::time::ClockType::Monotonic) - serialize_start_us)
+            .saturating_sub(io_time_us);
+    METRICS
+        .latencies_us
+        .vmm_snapshot_memory_serialize
+        .store(elapsed_time_us as usize);
+    let snapshot_type = match snapshot_type {
+        SnapshotType::Diff => "diff",
+        SnapshotType::Full => "full",
+    };
+    info!(
+        "'serialize {} guest memory to snapshot memory file' took {} us (excluding {} us of write/seek IO).",
+        snapshot_type, elapsed_time_us, io_time_us
+    );
     file.flush().map_err(|e| MemoryBackingFile("flush", e))?;
     file.sync_all()
         .map_err(|e| MemoryBackingFile("sync_all", e))
